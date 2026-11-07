@@ -52,6 +52,9 @@ h1,h2,h3,h4{line-height:1.3}
 .mode-badge{margin-top:11px;display:flex;align-items:center;gap:7px;font-size:11px;color:#b8d8c4;padding:0 8px;font-weight:600}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--g300);flex:none}
 .dot.api{background:#fbbf24}
+.dot.ok{background:#34d399}
+.dot.fail{background:#f87171}
+.dot.sync{background:#93c5fd}
 #btnSettings{margin-left:auto;background:none;border:none;color:#b8d8c4;cursor:pointer;font-size:15px;padding:4px;border-radius:8px}
 #btnSettings:hover{background:rgba(255,255,255,.12)}
 
@@ -368,6 +371,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g600);bo
         </div>
       </div>
       <div class="mode-badge"><span class="dot" id="modeDot"></span><span id="modeTxt">Mode Demo</span><button id="btnSettings" title="Pengaturan AI" aria-label="Pengaturan AI">⚙️</button></div>
+      <div class="mode-badge" id="syncBadge" hidden style="margin-top:7px;cursor:pointer"><span class="dot" id="syncDot"></span><span id="syncTxt">Cloud</span></div>
     </div>
   </aside>
   <div id="overlay"></div>
@@ -741,9 +745,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g600);bo
           <div class="hintbox" style="margin-top:14px">🔒 Key disimpan hanya di browser Anda (localStorage). Sesuai rencana arsitektur, pada produksi key sebaiknya disimpan di backend (Supabase Edge Functions) — bukan ditanam dalam HTML. Jika suatu model sudah tidak tersedia, aplikasi otomatis beralih ke model pengganti yang disarankan Google dan menyimpannya.</div>
         </div>
 
-        <h2 class="sec-title">☁️ Sinkronisasi Supabase (opsional)</h2>
+        <h2 class="sec-title">☁️ Sinkronisasi Otomatis Supabase (multi-device)</h2>
         <div class="card">
-          <p class="sec-desc">Data Anda <b>selalu tersimpan otomatis di perangkat</b>. Hubungkan project Supabase untuk menyalin data ke cloud — berguna untuk berpindah perangkat atau sebagai cadangan kedua. Proyek &amp; key Supabase tidak disertakan? Semua fitur tetap jalan normal.</p>
+          <p class="sec-desc">Konfigurasikan <b>sekali per perangkat</b> — setelah itu <b>semua input &amp; perubahan tersimpan otomatis</b> ke Supabase (±2 detik setelah disimpan) dan ditarik otomatis saat aplikasi dibuka di perangkat mana pun. Cara akses lintas device: <b>Masuk dengan akun yang sama</b> di setiap perangkat. Proyek &amp; key Supabase tidak disertakan? Semua fitur tetap jalan normal dengan penyimpanan perangkat.</p>
           <div class="form-grid">
             <label class="field"><span>Project URL</span><input id="cloudUrl" placeholder="https://xxxxx.supabase.co" autocomplete="off"></label>
             <label class="field"><span>Anon / Publishable Key</span><input type="password" id="cloudKey" placeholder="eyJ…" autocomplete="off"></label>
@@ -751,25 +755,35 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g600);bo
           <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
             <button class="btn btn-primary" id="btnCloudSave">💾 Simpan Konfigurasi</button>
             <button class="btn btn-ghost" id="btnCloudTest">🔌 Tes Koneksi</button>
-            <button class="btn btn-ghost" id="btnCloudUp">⬆️ Kirim ke Cloud</button>
+            <button class="btn btn-ghost" id="btnCloudUp">⬆️ Kirim Semua ke Cloud</button>
             <button class="btn btn-ghost" id="btnCloudDown">⬇️ Tarik dari Cloud</button>
           </div>
           <p class="sec-desc" id="cloudStatus" style="margin:12px 0 0">—</p>
           <p class="sec-desc" style="margin:14px 0 0"><b>Penyiapan database (sekali saja)</b> — buka <i>SQL Editor</i> di dashboard Supabase Anda, lalu jalankan:</p>
           <div class="codebox" id="sqlBox">create table if not exists public.guru_data (
   user_key   text not null,
-  kind       text not null,           -- profile | docs | chat | quizScores | history
+  kind       text not null,           -- tombstones | settings | profile | quizScores | docs | history | chat
   payload    jsonb not null,
   updated_at timestamptz not null default now(),
   primary key (user_key, kind)
 );
+create table if not exists public.guru_users (
+  user_key   text primary key,        -- login lintas perangkat
+  name       text not null default '',
+  pass_hash  text not null,
+  salt       text not null,
+  created_at timestamptz not null default now()
+);
 alter table public.guru_data enable row level security;
+alter table public.guru_users enable row level security;
 
 -- Untuk uji coba cepat (tanpa login Supabase):
-create policy "akses anon (uji coba)" on public.guru_data
+create policy "akses anon data (uji coba)" on public.guru_data
+  for all using (true) with check (true);
+create policy "akses anon users (uji coba)" on public.guru_users
   for all using (true) with check (true);</div>
           <div style="margin-top:9px"><button class="btn btn-ghost btn-sm" id="btnSqlCopy">📋 Salin SQL</button></div>
-          <div class="hintbox">⚠️ Policy di atas membuka akses anon untuk uji coba. Untuk produksi: gunakan Supabase Auth + kebijakan RLS per pengguna, dan simpan Gemini API key di Edge Functions.</div>
+          <p class="hintbox">⚠️ Policy di atas membuka akses anon untuk uji coba. Untuk produksi: gunakan Supabase Auth + kebijakan RLS per pengguna, dan simpan Gemini API key di Edge Functions.</p>
         </div>
 
         <h2 class="sec-title">💾 Cadangan &amp; Pulihkan</h2>
@@ -791,7 +805,7 @@ create policy "akses anon (uji coba)" on public.guru_data
       <section id="view-profil" class="view" hidden>
         <div class="view-head">
           <h1>👤 Profil Guru</h1>
-          <p>Data ini otomatis dipakai untuk identitas modul ajar dan sapaan personal di dashboard. Tersimpan hanya di perangkat Anda.</p>
+          <p>Data ini otomatis dipakai untuk identitas modul ajar dan sapaan personal di dashboard. Tersimpan di perangkat Anda dan ikut tersinkron ke cloud bila aktif.</p>
         </div>
         <div class="card">
           <div class="form-grid">
@@ -834,7 +848,16 @@ create policy "akses anon (uji coba)" on public.guru_data
       <button class="btn btn-primary" type="submit" style="width:100%">✨ Daftar &amp; Masuk</button>
     </form>
     <button class="btn btn-ghost" id="lockGuest" style="width:100%;margin-top:10px">🙋 Lanjut sebagai Tamu</button>
-    <p class="lock-note">🔒 Akun &amp; password disimpan <b>lokal di perangkat ini</b> (password di-hash, bukan teks asli) — bukan di server internet. Mode Tamu menyimpan data tanpa password di perangkat yang sama.</p>
+    <details style="margin-top:10px;text-align:left">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--g700)">☁️ Pakai akun yang sama di device lain? (Supabase)</summary>
+      <div style="display:grid;gap:8px;margin-top:9px">
+        <label class="field"><span>Project URL</span><input id="lockCloudUrl" placeholder="https://xxxxx.supabase.co" autocomplete="off"></label>
+        <label class="field"><span>Anon / Publishable Key</span><input type="password" id="lockCloudKey" placeholder="eyJ…" autocomplete="off"></label>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnLockCloud">💾 Simpan &amp; Uji Server</button>
+        <p style="font-size:11px;color:#61735f;line-height:1.55;margin:0">Simpan sekali di perangkat ini, lalu <b>Masuk</b> dengan akun yang sama — dokumen, riwayat, dan profil otomatis ditarik dari cloud.</p>
+      </div>
+    </details>
+    <p class="lock-note">🔒 Password di-hash sebelum disimpan (bukan teks asli). Tanpa Supabase: akun hanya dikenali di perangkat ini. Dengan Supabase: akun &amp; data tersinkron otomatis — bisa dipakai di banyak perangkat.</p>
   </div>
 </div>
 
@@ -883,9 +906,9 @@ create policy "akses anon (uji coba)" on public.guru_data
 <script>
 'use strict';
 /* =====================================================================
-   GURU SMART v3.0 (Tahap 3: Akun & Cloud) — Asisten Digital Guru
-   Satu file: HTML + CSS + JS. Data per akun tersimpan di localStorage;
-   sinkronisasi cloud opsional via Supabase REST.
+   GURU SMART v3.1 (Sinkronisasi Cloud Otomatis) — Asisten Digital Guru
+   Satu file: HTML + CSS + JS. Data per akun tersimpan di localStorage dan
+   TERSINKRON OTOMATIS ke Supabase (multi-device) bila dikonfigurasi.
    ===================================================================== */
 
 /* ---------- Util ---------- */
@@ -921,7 +944,7 @@ function bootNamespace(){
   NS = (s && s !== 'guest' && AUTH.accounts[s]) ? s : '';
 }
 function saveAccounts(){ G.set('accounts', AUTH.accounts); }
-function setSession(s){ AUTH.session = s || ''; G.set('session', AUTH.session); bootNamespace(); }
+function setSession(s){ AUTH.session = s || ''; G.set('session', AUTH.session); bootNamespace(); resetSyncMemory(); }
 bootNamespace();   // tentukan namespace akun SEBELUM state dibaca
 async function hashPass(pass, salt){
   const msg = (salt || '') + '::' + (pass || '');
@@ -950,6 +973,18 @@ function migrateSettings(){
   }
 }
 
+/* ---------- Konfigurasi cloud GLOBAL (per perangkat, berlaku untuk semua akun) ---------- */
+function cloudCfgGlobal(){
+  let c = G.get('cloud', null);
+  if (!c || typeof c !== 'object'){
+    try {
+      const raw = localStorage.getItem(nsKey('cloud')) || localStorage.getItem('gs_cloud');
+      if (raw){ c = JSON.parse(raw) || null; if (c) G.set('cloud', c); }
+    } catch(e){}
+  }
+  return (c && typeof c === 'object') ? { url: c.url || '', key: c.key || '' } : { url:'', key:'' };
+}
+
 /* ---------- State (namespace aktif) ---------- */
 const state = {
   profile : store.get('profile', {}),
@@ -958,14 +993,16 @@ const state = {
   chat    : store.get('chat', []),
   quizScores: store.get('quizScores', {}),
   history : store.get('history', []),
-  cloud   : store.get('cloud', { url:'', key:'' }),
+  cloud   : cloudCfgGlobal(),
   auth    : AUTH
 };
-const saveDocs    = () => store.set('docs', state.docs);
-const saveSettings= () => { store.set('settings', state.settings); paintMode(); };
-const saveQuizScores = () => store.set('quizScores', state.quizScores);
-const saveHistory = () => { while (state.history.length && !store.set('history', state.history)) state.history.length = Math.floor(state.history.length / 2); };
-const saveCloud   = () => store.set('cloud', state.cloud);
+/* Setiap fungsi simpan otomatis menandai data untuk disinkronkan ke cloud */
+const saveDocs    = () => { store.set('docs', state.docs); markSync('docs'); };
+const saveSettings= () => { store.set('settings', state.settings); paintMode(); markSync('settings'); };
+const saveChat    = () => { store.set('chat', state.chat); markSync('chat'); };
+const saveQuizScores = () => { store.set('quizScores', state.quizScores); markSync('quizScores'); };
+const saveHistory = () => { while (state.history.length && !store.set('history', state.history)) state.history.length = Math.floor(state.history.length / 2); markSync('history'); };
+const saveCloud   = () => { G.set('cloud', state.cloud); };
 const hasKey      = () => !!(state.settings.apiKey && state.settings.apiKey.trim());
 function reloadState(){
   state.profile    = store.get('profile', {});
@@ -974,10 +1011,235 @@ function reloadState(){
   state.chat       = store.get('chat', []);
   state.quizScores = store.get('quizScores', {});
   state.history    = store.get('history', []);
-  state.cloud      = store.get('cloud', { url:'', key:'' }) || { url:'', key:'' };
+  state.cloud      = cloudCfgGlobal();
   migrateSettings();
 }
 migrateSettings();
+
+/* =====================================================================
+   SINKRONISASI OTOMATIS SUPABASE (multi-device)
+   - Setiap perubahan lokal (markSync) terkirim otomatis ±2 detik kemudian.
+   - Saat aplikasi dibuka, kembali aktif, dan berkala: data terbaru ditarik.
+   - Gabung (merge): dokumen/riwayat digabung per-ID; skor kuis diambil
+     terbaik; penghapusan dicatat "tombstone" agar tidak muncul kembali.
+   - API key Gemini TIDAK ikut disinkronkan (tetap di perangkat).
+   ===================================================================== */
+const SYNC_KINDS = ['tombstones','settings','profile','quizScores','docs','history','chat'];
+const PUSH_ORDER = ['tombstones','settings','profile','quizScores','docs','history','chat'];
+let syncDirty = store.get('syncDirty', {});
+let syncTimer = null, syncRetryTimer = null, syncBusy = false, lastKick = 0;
+
+function resetSyncMemory(){
+  clearTimeout(syncTimer); clearTimeout(syncRetryTimer);
+  syncDirty = store.get('syncDirty', {});
+  try { paintSync(sbReady() ? 'idle' : 'off'); } catch(e){}
+}
+function deviceId(){
+  let d = G.get('device', '');
+  if (!d){ d = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); G.set('device', d); }
+  return d;
+}
+const cloudUserKey = () => NS || ('tamu-' + deviceId());
+function sbUrl(){ return String(state.cloud.url || '').trim().replace(/\/+$/, ''); }
+function sbReady(){
+  const u = String((state.cloud || {}).url || '').trim();
+  const k = String((state.cloud || {}).key || '').trim();
+  return !!(u && k && /^https?:\/\//.test(u));
+}
+function sbHeaders(){
+  const k = String((state.cloud || {}).key || '').trim();
+  return { apikey: k, Authorization: 'Bearer ' + k, 'Content-Type': 'application/json' };
+}
+async function sbTest(){
+  if (!sbReady()) throw new Error('URL dan anon key Supabase belum lengkap.');
+  const res = await fetch(sbUrl() + '/rest/v1/guru_data?select=user_key&limit=1', { headers: sbHeaders() });
+  if (!res.ok){ let m = ''; try { m = (await res.json()).message || ''; } catch(e){} throw new Error('HTTP ' + res.status + (m ? ' — ' + m : '')); }
+  return true;
+}
+/* Akun cloud (tabel guru_users) — agar login bisa dari perangkat mana pun */
+async function sbGetUser(key){
+  const res = await fetch(sbUrl() + '/rest/v1/guru_users?user_key=eq.' + encodeURIComponent(key) + '&select=user_key,name,pass_hash,salt,created_at', { headers: sbHeaders() });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+async function sbUpsertUser(rec){
+  const res = await fetch(sbUrl() + '/rest/v1/guru_users', {
+    method: 'POST', headers: Object.assign(sbHeaders(), { Prefer: 'resolution=merge-duplicates' }), body: JSON.stringify(rec)
+  });
+  if (!res.ok){ let m = ''; try { m = (await res.json()).message || ''; } catch(e){} throw new Error('HTTP ' + res.status + (m ? ' — ' + m : '')); }
+}
+function payloadFor(kind){
+  if (kind === 'settings'){ const s = Object.assign({}, state.settings); delete s.apiKey; return s; }
+  if (kind === 'tombstones') return store.get('tombstones', {});
+  return state[kind];
+}
+function persistDirty(){ store.set('syncDirty', syncDirty); }
+function syncMeta(){ return store.get('syncMeta', {}); }
+function setSyncMeta(kind, iso){ const m = syncMeta(); m[kind] = iso; store.set('syncMeta', m); }
+
+function markSync(kind){
+  if (!sbReady()) return;
+  syncDirty[kind] = 1; persistDirty();
+  paintSync('queue');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { kickSync(false, true); }, 2200);
+}
+
+/* ---------- Tombstone: catatan penghapusan lintas perangkat ---------- */
+function tombstonesGet(){ return store.get('tombstones', {}); }
+function tombstone(kind, ids){
+  if (!ids || !ids.length) return;
+  const t = tombstonesGet();
+  t[kind] = t[kind] || {};
+  ids.forEach(id => { t[kind][id] = Date.now(); });
+  store.set('tombstones', t);
+  markSync('tombstones');
+}
+function pruneTomb(t){
+  const cut = Date.now() - 60 * 864e5;
+  ['docs','history'].forEach(k => {
+    t[k] = t[k] || {};
+    Object.keys(t[k]).forEach(id => { if (t[k][id] < cut) delete t[k][id]; });
+  });
+  return t;
+}
+function filterTomb(kind, arr){
+  const t = tombstonesGet()[kind] || {};
+  return (arr || []).filter(x => !(t[x.id] && t[x.id] > (x.createdAt || x.ts || 0)));
+}
+
+/* ---------- Gabungkan payload cloud ke lokal (union / max, tanpa kehilangan data lokal) ---------- */
+function applyCloudKind(kind, payload){
+  if (payload == null) return false;
+  if (kind === 'settings'){
+    state.settings = Object.assign(Object.assign({}, state.settings), payload);
+    migrateSettings();
+    store.set('settings', state.settings);
+    paintMode();
+  } else if (kind === 'quizScores'){
+    const cur = state.quizScores || {};
+    Object.keys(payload).forEach(k => { cur[k] = Math.max(cur[k] || 0, payload[k] || 0); });
+    state.quizScores = cur; store.set('quizScores', cur);
+  } else if (kind === 'docs'){
+    const map = {};
+    (state.docs || []).forEach(d => { map[d.id] = d; });
+    (payload || []).forEach(d => { if (d && d.id && !map[d.id]) map[d.id] = d; });
+    state.docs = filterTomb('docs', Object.values(map)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    store.set('docs', state.docs);
+  } else if (kind === 'history'){
+    const map = {};
+    (state.history || []).forEach(h => { map[h.id] = h; });
+    (payload || []).forEach(h => { if (h && h.id && !map[h.id]) map[h.id] = h; });
+    state.history = filterTomb('history', Object.values(map)).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
+    store.set('history', state.history);
+  } else if (kind === 'tombstones'){
+    const cur = pruneTomb(tombstonesGet());
+    ['docs','history'].forEach(k => {
+      const inc = payload[k] || {};
+      cur[k] = cur[k] || {};
+      Object.keys(inc).forEach(id => { cur[k][id] = Math.max(cur[k][id] || 0, inc[id] || 0); });
+    });
+    store.set('tombstones', cur);
+    state.docs = filterTomb('docs', state.docs || []); store.set('docs', state.docs);
+    state.history = filterTomb('history', state.history || []); store.set('history', state.history);
+  } else {   // profile & chat: versi terakhir menang
+    state[kind] = payload; store.set(kind, payload);
+  }
+  return true;
+}
+/* Sebelum mengirim data gabungan, tarik dulu isi cloud supaya dokumen buatan
+   perangkat lain tidak tertimpa (khusus jenis yang bisa di-merge). */
+async function premergeFromCloud(kind){
+  if (['docs','history','tombstones','quizScores'].indexOf(kind) < 0) return;
+  try {
+    const res = await fetch(sbUrl() + '/rest/v1/guru_data?user_key=eq.' + encodeURIComponent(cloudUserKey()) + '&kind=eq.' + kind + '&select=payload', { headers: sbHeaders() });
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (rows && rows.length) applyCloudKind(kind, rows[0].payload);
+  } catch(e){}
+}
+async function sbPush(kinds){
+  const rows = kinds.map(kind => ({ user_key: cloudUserKey(), kind: kind, payload: payloadFor(kind) }));
+  const res = await fetch(sbUrl() + '/rest/v1/guru_data?select=kind,updated_at', {
+    method: 'POST',
+    headers: Object.assign(sbHeaders(), { Prefer: 'resolution=merge-duplicates,return=representation' }),
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok){ let m = ''; try { m = (await res.json()).message || ''; } catch(e){} throw new Error('HTTP ' + res.status + (m ? ' — ' + m : '')); }
+  let saved = [];
+  try { saved = await res.json(); } catch(e){}
+  saved.forEach(r => { if (r && r.kind) setSyncMeta(r.kind, r.updated_at || new Date().toISOString()); });
+}
+async function autoSyncPush(){
+  const kinds = PUSH_ORDER.filter(k => syncDirty[k]);
+  if (!kinds.length || !sbReady() || syncBusy) return;
+  syncBusy = true;
+  paintSync('sync');
+  try {
+    for (let i = 0; i < kinds.length; i++) await premergeFromCloud(kinds[i]);
+    await sbPush(kinds);
+    kinds.forEach(k => { delete syncDirty[k]; });
+    persistDirty();
+    store.set('cloudLast', Date.now());
+    paintSync(Object.keys(syncDirty).length ? 'queue' : 'ok');
+    paintCloudStatusSafe();
+  } catch(err){
+    paintSync('fail');
+    clearTimeout(syncRetryTimer);
+    syncRetryTimer = setTimeout(() => { if (Object.keys(syncDirty).length) kickSync(false, true); }, 20000);
+  } finally { syncBusy = false; }
+}
+async function autoSyncPull(showToast){
+  if (!sbReady()) return 0;
+  const res = await fetch(sbUrl() + '/rest/v1/guru_data?user_key=eq.' + encodeURIComponent(cloudUserKey()) + '&select=kind,payload,updated_at', { headers: sbHeaders() });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const rows = await res.json();
+  const meta = syncMeta();
+  const applied = [];
+  PUSH_ORDER.forEach(kind => {
+    const row = rows.find(r => r.kind === kind);
+    if (!row || row.payload == null) return;
+    if (syncDirty[kind]) return;                        // ada perubahan lokal belum terkirim — jangan ditimpa
+    const iso = row.updated_at, last = meta[kind];
+    if (last && !(new Date(iso) > new Date(last))) return;
+    if (applyCloudKind(kind, row.payload)){ meta[kind] = iso; applied.push(kind); }
+  });
+  store.set('syncMeta', meta);
+  if (applied.length){
+    store.set('cloudLast', Date.now());
+    paintSync('ok'); paintCloudStatusSafe(); repaintAfterSync();
+    if (showToast) toast('⬇️ ' + applied.length + ' jenis data diperbarui dari cloud (' + applied.join(', ') + ').');
+  }
+  return applied.length;
+}
+async function kickSync(showToast, force){
+  if (!sbReady()){ paintSync('off'); return; }
+  if (syncBusy) return;
+  if (!force && !showToast && (Date.now() - lastKick) < 20000) return;   // jangan terlalu sering
+  lastKick = Date.now();
+  paintSync('sync');
+  try {
+    await autoSyncPush();
+    await autoSyncPull(!!showToast);
+    paintSync(Object.keys(syncDirty).length ? 'queue' : 'ok');
+  } catch(err){ paintSync('fail'); }
+}
+function paintCloudStatusSafe(){ try { if (typeof paintCloudStatus === 'function') paintCloudStatus(); } catch(e){} }
+function repaintAfterSync(){ try { paintProfile(); fillProfileForm(); paintMode(); renderRoute(); } catch(e){} }
+function paintSync(st){
+  const badge = $('#syncBadge'); if (!badge) return;
+  if (!sbReady()){ badge.hidden = true; return; }
+  const dot = $('#syncDot'), txt = $('#syncTxt');
+  badge.hidden = false;
+  dot.className = 'dot ' + (st === 'ok' ? 'ok' : st === 'fail' ? 'fail' : st === 'off' || st === 'idle' ? '' : 'sync');
+  const last = store.get('cloudLast', 0);
+  if (st === 'sync') txt.textContent = 'Menyinkronkan cloud…';
+  else if (st === 'queue') txt.textContent = 'Menyimpan ke cloud…';
+  else if (st === 'fail') txt.textContent = 'Sinkron gagal — klik untuk ulang';
+  else txt.textContent = 'Cloud aktif' + (last ? ' • ' + new Date(last).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }) : '');
+  badge.title = 'Sinkronisasi Supabase — klik untuk sinkron sekarang';
+  badge.onclick = () => kickSync(true, true);
+}
 function logHistory(entry){
   entry.id = entry.id || ('h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
   entry.ts = entry.ts || Date.now();
@@ -1055,7 +1317,7 @@ function saveProfileFromForm(){
     sekolah: $('#pSekolah').value.trim(), jenjang: $('#pJenjang').value,
     mapel: $('#pMapel').value.trim(), ta: $('#pTa').value.trim() || semesterInfo().ta
   };
-  store.set('profile', state.profile); paintProfile();
+  store.set('profile', state.profile); markSync('profile'); paintProfile();
   toast('👤 Profil tersimpan. Identitas modul ajar akan otomatis terisi.');
 }
 function penyusunName(){ return state.profile.nama || '……………………………'; }
@@ -1158,6 +1420,7 @@ async function gemini(promptOrContents, opts = {}){
       const txt = await geminiCall(sug[1], geminiBody(contents, opts));
       state.settings.model = sug[1];
       store.set('settings', state.settings);
+      markSync('settings');
       toast('🔄 Model diganti otomatis ke ' + sug[1] + ' — model lama sudah tidak tersedia.');
       return txt;
     }
@@ -2407,8 +2670,8 @@ function paintDocs(){
       }
       if (b.dataset.op === 'del'){
         if (confirm('Hapus dokumen "' + d.title + '"? Tindakan ini tidak dapat dibatalkan.')){
-          state.docs = state.docs.filter(x => x.id !== d.id); saveDocs(); paintDocs();
-          toast('🗑️ Dokumen dihapus.');
+          state.docs = state.docs.filter(x => x.id !== d.id); tombstone('docs', [d.id]); saveDocs(); paintDocs();
+          toast('🗑️ Dokumen dihapus — perubahan akan tersinkron ke cloud.');
         }
       }
     };
@@ -2477,7 +2740,7 @@ async function sendChat(){
   }
   state.chat.push({ role:'ai', text: reply });
   if (state.chat.length > 60) state.chat = state.chat.slice(-60);
-  store.set('chat', state.chat);
+  saveChat();
   renderChat();
 }
 
@@ -2512,7 +2775,7 @@ function paintRiwayat(){
       if (b.dataset.h === 'del'){
         if (confirm('Hapus entri riwayat "' + h.title + '"?')){
           state.history = state.history.filter(x => x.id !== h.id);
-          saveHistory(); paintRiwayat();
+          tombstone('history', [h.id]); saveHistory(); paintRiwayat();
           toast('🗑️ Entri riwayat dihapus.');
         }
       }
@@ -2521,7 +2784,7 @@ function paintRiwayat(){
 }
 
 /* ---------- Akun guru: lock, daftar, masuk, keluar ---------- */
-const DATA_KEYS = ['profile','settings','docs','chat','quizScores','history','cloud'];
+const DATA_KEYS = ['profile','settings','docs','chat','quizScores','history'];
 function migrateGuestDataTo(key){
   DATA_KEYS.forEach(k => {
     try {
@@ -2533,26 +2796,60 @@ function migrateGuestDataTo(key){
 async function registerAccount(u, name, pass, migrate){
   const key = ukeyOf(u);
   if (key.length < 3 || key.length > 20) return { err: 'Username harus 3–20 karakter (a-z, 0-9, _).' };
-  if (AUTH.accounts[key]) return { err: 'Username "' + key + '" sudah dipakai.' };
+  if (AUTH.accounts[key]) return { err: 'Username "' + key + '" sudah dipakai di perangkat ini.' };
   if (!pass || String(pass).length < 6) return { err: 'Password minimal 6 karakter.' };
   const salt = Math.random().toString(36).slice(2, 10);
   const hash = await hashPass(pass, salt);
+  let cloudErr = '';
+  if (sbReady()){
+    /* Daftarkan akun ke cloud agar bisa dipakai login di perangkat lain */
+    try {
+      const rows = await sbGetUser(key);
+      if (rows && rows.length){
+        const h = await hashPass(pass, rows[0].salt);
+        if (h !== rows[0].pass_hash) return { err: 'Username "' + key + '" sudah terdaftar di cloud dengan password lain. Gunakan tab Masuk.' };
+      } else {
+        await sbUpsertUser({ user_key: key, name: (name || key).trim(), pass_hash: hash, salt: salt });
+      }
+    } catch(err){ cloudErr = err.message || 'server tidak terjangkau'; }
+  }
   AUTH.accounts[key] = { u: key, name: (name || key).trim(), hash: hash, salt: salt, createdAt: Date.now() };
   saveAccounts();
   if (migrate) migrateGuestDataTo(key);
   setSession(key);
   reloadState();
+  SYNC_KINDS.forEach(k => markSync(k));   // unggah seluruh data akun ke cloud
+  kickSync(true, true);
+  if (cloudErr) setTimeout(() => toast('⚠️ Akun dibuat, tapi server cloud belum terjangkau (' + cloudErr + '). Akan dicoba lagi otomatis.'), 400);
   return { ok: true, key: key };
 }
 async function loginAccount(u, pass){
   const key = ukeyOf(u);
-  const a = AUTH.accounts[key];
-  if (!a) return { err: 'Akun tidak ditemukan. Periksa username atau daftar akun baru.' };
+  let a = AUTH.accounts[key];
+  let fromCloud = false;
+  if (!a && sbReady()){
+    /* Login lintas perangkat: akun tidak ada di perangkat ini -> ambil dari cloud */
+    try {
+      const rows = await sbGetUser(key);
+      if (rows && rows.length){
+        const h = await hashPass(pass || '', rows[0].salt);
+        if (h === rows[0].pass_hash){
+          AUTH.accounts[key] = { u: key, name: rows[0].name || key, hash: rows[0].pass_hash, salt: rows[0].salt,
+            createdAt: rows[0].created_at ? new Date(rows[0].created_at).getTime() : Date.now() };
+          saveAccounts();
+          a = AUTH.accounts[key];
+          fromCloud = true;
+        }
+      }
+    } catch(e){}
+  }
+  if (!a) return { err: 'Akun tidak ditemukan. Periksa username atau daftar akun baru.' + (sbReady() ? '' : ' (Server cloud belum dikonfigurasi — akun hanya dikenali di perangkat pendaftar.)') };
   const hash = await hashPass(pass || '', a.salt);
   if (hash !== a.hash) return { err: 'Password salah.' };
   setSession(key);
   reloadState();
-  return { ok: true, key: key };
+  kickSync(true, true);   // tarik data terbaru dari cloud & kirim yang tertunda
+  return { ok: true, key: key, fromCloud: fromCloud };
 }
 function logoutAccount(){
   setSession('');
@@ -2587,18 +2884,26 @@ function paintAcctCard(){
         '<div class="lbl">@' + esc(a.u) + ' • akun lokal • dibuat ' + fmtDateShort(a.createdAt) + '</div></div>' +
         '<button class="btn btn-ghost btn-sm" id="btnLogout">🔒 Keluar / Ganti Akun</button>' +
       '</div>' +
-      '<p class="sec-desc" style="margin:13px 0 0">Dokumen, chat, skor kuis, dan riwayat <b>terpisah per akun</b> di perangkat ini. Untuk memindahkan ke perangkat lain, gunakan ☁️ Kirim ke Cloud atau 💾 Unduh Cadangan.</p>';
+      '<p class="sec-desc" style="margin:13px 0 0">Dokumen, chat, skor kuis, dan riwayat <b>terpisah per akun</b> dan otomatis tersinkron ke cloud (bila Supabase terkonfigurasi). Buka di perangkat lain? Konfigurasi server Supabase yang sama, lalu <b>Masuk dengan akun ini</b> — seluruh data ditarik otomatis.</p>';
     $('#btnLogout').onclick = logoutAccount;
   } else {
     el.innerHTML =
-      '<div class="hintbox" style="margin:0 0 15px">🙋 Anda dalam <b>Mode Tamu</b> — data tersimpan di perangkat tanpa password. Buat akun agar data per pengguna terpisah dan terlindungi password.</div>' +
+      '<div class="hintbox" style="margin:0 0 15px">🙋 Anda dalam <b>Mode Tamu</b> — data tersimpan di perangkat tanpa password (dan tetap tersinkron bila cloud aktif). Buat akun agar data terlindungi password dan bisa dibuka dari perangkat mana pun.</div>' +
       '<div class="form-grid">' +
         '<label class="field"><span>Username (a-z, 0-9, _)</span><input id="regU" placeholder="cth. bu_rina" autocomplete="off"></label>' +
         '<label class="field"><span>Nama Lengkap</span><input id="regN" placeholder="cth. Rina Kartika, S.Pd."></label>' +
         '<label class="field"><span>Password (min. 6 karakter)</span><input type="password" id="regP" autocomplete="new-password"></label>' +
       '</div>' +
       '<label class="check-row"><input type="checkbox" id="regMigrate" checked><span>Pindahkan data mode tamu saat ini (profil, dokumen, riwayat) ke akun baru</span></label>' +
-      '<button class="btn btn-primary" id="btnRegInline">✨ Daftar &amp; Masuk</button>';
+      '<button class="btn btn-primary" id="btnRegInline">✨ Daftar &amp; Masuk</button>' +
+      '<div style="margin-top:14px;border-top:1px dashed var(--g100);padding-top:13px">' +
+        '<b style="font-size:13px;color:var(--g900)">Sudah punya akun (mis. dibuat di perangkat lain)?</b>' +
+        '<div class="form-grid" style="margin-top:8px">' +
+          '<label class="field"><span>Username</span><input id="linU" autocomplete="off"></label>' +
+          '<label class="field"><span>Password</span><input type="password" id="linP" autocomplete="off"></label>' +
+        '</div>' +
+        '<button class="btn btn-ghost" id="btnLinInline">🔓 Masuk &amp; Tarik Data Cloud</button>' +
+      '</div>';
     $('#btnRegInline').onclick = async () => {
       const mig = $('#regMigrate').checked;
       const r = await registerAccount($('#regU').value, $('#regN').value, $('#regP').value, mig);
@@ -2606,6 +2911,13 @@ function paintAcctCard(){
       afterAuthPaint();
       const a = AUTH.accounts[r.key];
       toast('✅ Akun @' + r.key + ' dibuat' + (mig ? ' beserta data tamu' : '') + '. Selamat datang, ' + (a && a.name ? a.name : 'Guru') + '!');
+    };
+    $('#btnLinInline').onclick = async () => {
+      const r = await loginAccount($('#linU').value, $('#linP').value);
+      if (r.err){ toast('⚠️ ' + r.err); return; }
+      afterAuthPaint();
+      const a = AUTH.accounts[r.key];
+      toast('👋 Selamat datang, ' + (a && a.name ? a.name : 'Guru') + '!' + (r.fromCloud ? ' Data berhasil ditarik dari cloud.' : ''));
     };
   }
 }
@@ -2623,8 +2935,9 @@ function paintSettings(){
 function paintCloudStatus(){
   const el = $('#cloudStatus'); if (!el) return;
   const last = store.get('cloudLast', 0);
-  el.innerHTML = sbCfg().ok
-    ? '☁️ Status: <b style="color:var(--g700)">terkonfigurasi</b>' + (last ? ' • kirim terakhir ' + histTime(last) : '') + ' • ID cloud: <code>' + esc(cloudUserKey()) + '</code>'
+  el.innerHTML = sbReady()
+    ? '☁️ <b style="color:var(--g700)">Sinkronisasi otomatis AKTIF</b>' + (last ? ' • sinkron terakhir ' + histTime(last) : '') + ' • ID cloud: <code>' + esc(cloudUserKey()) + '</code>' +
+      '<br><span style="font-size:11px;color:#6b7280">Setiap input/perubahan terkirim otomatis ±2 detik setelah disimpan, dan data terbaru ditarik otomatis saat aplikasi dibuka / kembali aktif / tiap 90 detik. Login dengan akun yang sama di perangkat lain untuk mengakses data yang sama. API key Gemini tidak ikut disinkronkan.</span>'
     : '☁️ Status: <b>belum dikonfigurasi</b> — semua fitur tetap berjalan dengan penyimpanan perangkat.';
 }
 async function withBtn(btn, fn){
@@ -2634,44 +2947,23 @@ async function withBtn(btn, fn){
   catch(err){ toast('⚠️ ' + (err.message || 'Terjadi kesalahan.')); }
   btn.disabled = false; btn.textContent = old;
 }
-function deviceId(){
-  let d = G.get('device', '');
-  if (!d){ d = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); G.set('device', d); }
-  return d;
+/* ---------- Sinkron manual (tombol di Pengaturan) ---------- */
+async function forcePushAll(){
+  if (!sbReady()) throw new Error('Konfigurasi Supabase belum lengkap.');
+  PUSH_ORDER.forEach(k => { syncDirty[k] = 1; });
+  persistDirty();
+  await kickSync(false, true);
+  if (Object.keys(syncDirty).length) throw new Error('sebagian data gagal terkirim — periksa koneksi lalu ulangi.');
+  toast('⬆️ Semua data akun terkirim ke cloud (profil, dokumen, chat, skor, riwayat).');
 }
-function cloudUserKey(){ return NS || ('tamu-' + deviceId()); }
-function sbCfg(){
-  const url = String(state.cloud.url || '').trim().replace(/\/+$/, '');
-  const key = String(state.cloud.key || '').trim();
-  return { url: url, key: key, ok: !!(url && key && /^https?:\/\//.test(url)) };
-}
-function sbHeaders(){ const c = sbCfg(); return { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json' }; }
-async function sbTest(){
-  const c = sbCfg();
-  if (!c.ok) throw new Error('URL dan anon key Supabase belum lengkap.');
-  const res = await fetch(c.url + '/rest/v1/guru_data?select=user_key&limit=1', { headers: sbHeaders() });
-  if (!res.ok){ let m = ''; try { m = (await res.json()).message || ''; } catch(e){} throw new Error('HTTP ' + res.status + (m ? ' — ' + m : '')); }
-  return true;
-}
-const SB_KINDS = ['profile','docs','chat','quizScores','history'];
-async function sbUpload(){
-  await sbTest();
-  const rows = SB_KINDS.map(kind => ({ user_key: cloudUserKey(), kind: kind, payload: store.get(kind, null), updated_at: new Date().toISOString() }));
-  const res = await fetch(sbCfg().url + '/rest/v1/guru_data', {
-    method: 'POST', headers: Object.assign(sbHeaders(), { Prefer: 'resolution=merge-duplicates' }), body: JSON.stringify(rows)
-  });
-  if (!res.ok){ let m = ''; try { m = (await res.json()).message || ''; } catch(e){} throw new Error('HTTP ' + res.status + (m ? ' — ' + m : '')); }
-  store.set('cloudLast', Date.now()); paintCloudStatus();
-}
-async function sbDownload(){
-  await sbTest();
-  const res = await fetch(sbCfg().url + '/rest/v1/guru_data?user_key=eq.' + encodeURIComponent(cloudUserKey()) + '&select=kind,payload', { headers: sbHeaders() });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const rows = await res.json();
-  if (!rows.length) throw new Error('belum ada data di cloud untuk ID ini — kirim dulu dari perangkat sumber.');
-  const map = {}; rows.forEach(r => { map[r.kind] = r.payload; });
-  SB_KINDS.forEach(kind => { if (map[kind] != null){ state[kind] = map[kind]; store.set(kind, map[kind]); } });
-  paintProfile(); fillProfileForm(); paintMode(); renderRoute();
+async function forcePullAll(){
+  if (!sbReady()) throw new Error('Konfigurasi Supabase belum lengkap.');
+  PUSH_ORDER.forEach(k => { delete syncDirty[k]; });
+  persistDirty();
+  const meta = syncMeta(); PUSH_ORDER.forEach(k => { delete meta[k]; });
+  store.set('syncMeta', meta);
+  const n = await autoSyncPull(true);
+  if (!n) toast('⬇️ Belum ada data lain di cloud untuk ID ini.');
 }
 function exportBackup(){
   const payload = {
@@ -2708,10 +3000,13 @@ function importBackupFile(file){
 function resetAccountData(){
   if (!confirm('Hapus SEMUA data akun ini di perangkat (profil, dokumen, chat, riwayat, skor kuis)? Konfigurasi AI & cloud tetap tersimpan.')) return;
   if (!confirm('Konfirmasi terakhir: tindakan ini tidak dapat dibatalkan. Lanjutkan?')) return;
+  tombstone('docs', state.docs.map(d => d.id));
+  tombstone('history', state.history.map(h => h.id));
   ['profile','docs','chat','quizScores','history'].forEach(k => store.del(k));
   reloadState();
   paintProfile(); fillProfileForm(); paintMode(); renderRoute();
-  toast('🗑️ Semua data akun ini telah dihapus.');
+  ['profile','docs','chat','quizScores','history'].forEach(k => markSync(k));   // kosongkan juga di cloud
+  toast('🗑️ Semua data akun ini telah dihapus — perubahan disinkronkan ke cloud.');
 }
 function paintStorage(){
   let bytes = 0;
@@ -2729,7 +3024,7 @@ function paintStorage(){
       '<div class="ms"><b>' + state.history.length + '</b><span>Entri riwayat</span></div>' +
       '<div class="ms"><b>' + state.chat.length + '</b><span>Pesan chat</span></div>' +
     '</div>' +
-    '<p class="sec-desc" style="margin:14px 0 0">Ruang data: <b>' + esc(NS ? '@' + NS : 'Mode Tamu') + '</b> • Data tersimpan otomatis di perangkat ini (localStorage) dan tetap ada meski aplikasi ditutup. Gunakan ☁️ Kirim ke Cloud atau 💾 Unduh Cadangan untuk salinan kedua.</p>';
+    '<p class="sec-desc" style="margin:14px 0 0">Ruang data: <b>' + esc(NS ? '@' + NS : 'Mode Tamu') + '</b> • Data tersimpan otomatis di perangkat ini (localStorage) dan ikut tersinkron ke cloud bila Supabase terkonfigurasi. Gunakan 💾 Unduh Cadangan untuk salinan ekstra tanpa internet.</p>';
 }
 
 /* ---------- Init ---------- */
@@ -2860,13 +3155,13 @@ function init(){
     if (curView.source === 'docs'){
       const d = state.docs.find(x => x.id === curView.id);
       if (d && confirm('Hapus dokumen "' + d.title + '"?')){
-        state.docs = state.docs.filter(x => x.id !== d.id); saveDocs(); closeDocModal(); paintDocs();
-        toast('🗑️ Dokumen dihapus.');
+        state.docs = state.docs.filter(x => x.id !== d.id); tombstone('docs', [d.id]); saveDocs(); closeDocModal(); paintDocs();
+        toast('🗑️ Dokumen dihapus — tersinkron ke cloud.');
       }
     } else {
       if (confirm('Hapus entri riwayat "' + curView.title + '"?')){
         state.history = state.history.filter(x => x.id !== curView.id);
-        saveHistory(); closeDocModal();
+        tombstone('history', [curView.id]); saveHistory(); closeDocModal();
         if (currentView() === 'riwayat') paintRiwayat();
         toast('🗑️ Entri riwayat dihapus.');
       }
@@ -2888,15 +3183,16 @@ function init(){
     toast('🧪 API key dihapus. Kembali ke Mode Demo.');
   };
 
-  // Cloud Supabase (opsional)
+  // Cloud Supabase (sinkronisasi otomatis)
   $('#btnCloudSave').onclick = () => {
     state.cloud = { url: $('#cloudUrl').value.trim(), key: $('#cloudKey').value.trim() };
-    saveCloud(); paintCloudStatus();
-    toast('💾 Konfigurasi cloud tersimpan.');
+    saveCloud(); paintCloudStatus(); paintSync(sbReady() ? 'idle' : 'off');
+    toast(sbReady() ? '💾 Konfigurasi cloud tersimpan — sinkronisasi otomatis aktif.' : '⚠️ URL / anon key belum lengkap — sinkronisasi belum aktif.');
+    if (sbReady()) kickSync(true, true);
   };
   $('#btnCloudTest').onclick = e => withBtn(e.currentTarget, async () => { await sbTest(); toast('🔌 Koneksi Supabase berhasil.'); });
-  $('#btnCloudUp').onclick = e => withBtn(e.currentTarget, async () => { await sbUpload(); toast('⬆️ Data akun terkirim ke cloud (profil, dokumen, chat, skor, riwayat).'); });
-  $('#btnCloudDown').onclick = e => withBtn(e.currentTarget, async () => { await sbDownload(); toast('⬇️ Data ditarik dari cloud dan diterapkan.'); });
+  $('#btnCloudUp').onclick = e => withBtn(e.currentTarget, forcePushAll);
+  $('#btnCloudDown').onclick = e => withBtn(e.currentTarget, forcePullAll);
   $('#btnSqlCopy').onclick = async () => {
     try { await navigator.clipboard.writeText($('#sqlBox').textContent.trim()); toast('📋 SQL penyiapan database disalin.'); }
     catch(e){ toast('⚠️ Gagal menyalin — blokir teks SQL secara manual.'); }
@@ -2914,8 +3210,9 @@ function init(){
   $('#btnHistClear').onclick = () => {
     if (!state.history.length){ toast('Riwayat sudah kosong.'); return; }
     if (confirm('Bersihkan SELURUH riwayat AI? Dokumen yang sudah disimpan tidak terpengaruh.')){
+      tombstone('history', state.history.map(h => h.id));
       state.history = []; saveHistory(); paintRiwayat();
-      toast('🧹 Riwayat dibersihkan.');
+      toast('🧹 Riwayat dibersihkan — tersinkron ke cloud.');
     }
   };
 
@@ -2928,7 +3225,7 @@ function init(){
     if (r.err) return lockErr(r.err);
     afterAuthPaint();
     const a = AUTH.accounts[r.key];
-    toast('👋 Selamat datang kembali, ' + (a && a.name ? a.name : 'Guru') + '!');
+    toast('👋 Selamat datang kembali, ' + (a && a.name ? a.name : 'Guru') + '!' + (r.fromCloud ? ' Akun dikenali dari cloud — data sedang ditarik.' : ''));
   };
   $('#lockRegForm').onsubmit = async e => {
     e.preventDefault();
@@ -2941,7 +3238,19 @@ function init(){
   $('#lockGuest').onclick = () => {
     setSession('guest');
     $('#lock').hidden = true;
+    kickSync(false, true);
     toast('🙋 Mode Tamu aktif — data tersimpan di perangkat ini.');
+  };
+  // Konfigurasi cloud dari layar kunci (untuk login lintas perangkat)
+  $('#lockCloudUrl').value = state.cloud.url || '';
+  $('#lockCloudKey').value = state.cloud.key || '';
+  $('#btnLockCloud').onclick = e => {
+    state.cloud = { url: $('#lockCloudUrl').value.trim(), key: $('#lockCloudKey').value.trim() };
+    saveCloud(); paintSync(sbReady() ? 'idle' : 'off');
+    withBtn(e.currentTarget, async () => {
+      await sbTest();
+      toast('☁️ Server Supabase terhubung — masuk dengan akun Anda untuk menarik data.');
+    });
   };
   document.addEventListener('keydown', e => { if (e.key === 'Escape'){ closeDocModal(); if (qp.on) qpClose(); } });
 
@@ -2954,6 +3263,13 @@ function init(){
   paintTip();
   renderRoute();
   if (lockNeeded()) showLock();
+
+  // Sinkronisasi cloud otomatis: saat buka, kembali aktif, dan berkala
+  paintSync(sbReady() ? 'idle' : 'off');
+  if (sbReady()) kickSync(false, true);
+  setInterval(() => { if (!document.hidden) kickSync(false, false); }, 90000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kickSync(false, false); });
+  window.addEventListener('focus', () => kickSync(false, false));
 }
 init();
 </script>
